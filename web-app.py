@@ -222,7 +222,7 @@ def check_state_dict(type):
         data = u.read()
         u.close()
 
-        with open(state_url, 'wb') as f:
+        with open(state_name, 'wb') as f:
             f.write(data)
 
 #memuat state dictionary hasil pembelajaran
