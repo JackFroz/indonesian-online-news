@@ -233,9 +233,9 @@ def load_state_dict_file(type):
     return torch.load(state_name, map_location=torch.device("cpu"))
 
 @st.cache
-def create_model(type):
+def create_model(type, dropout):
     #instansiasi model klasifikasi
-    model = NewsClassifier(5, 0.25)
+    model = NewsClassifier(4, dropout)
 
     #memuat state_dict yang berisi nilai-nilai parameter
     #hasil pembelajaran
@@ -250,31 +250,6 @@ def create_model(type):
     del state_dict
 
     return model
-
-def analyze_framing(title_result_probs, content_result_probs):
-    framed = 0
-    not_framed = 0
-    indecisive = 0
-
-    for i in range(len(title_result_probs)):
-        for j in range(len(content_result_probs)):
-            if i != j:
-                framed += (title_result_probs[i] * content_result_probs[j])
-
-            if i == j and i != 4:
-                not_framed += (title_result_probs[i] * content_result_probs[j])
-
-            if i == j and i == 4:
-                indecisive += (title_result_probs[i] * content_result_probs[j])
-    
-    
-    prob = torch.tensor([framed, not_framed, indecisive])
-    _, pred = torch.max(prob, dim=0)
-
-    return {
-        'prediction': pred,
-        'probabilities': prob
-    }
 
 #kelas untuk instansiasi model klasifikasi
 class NewsClassifier(nn.Module):
@@ -327,7 +302,7 @@ if __name__ == '__main__':
         """, unsafe_allow_html=True)
 
     
-    st.write("# Deteksi Framing Pada Berita Online Covid-19 Berbahasa Indonesia")
+    st.write("# Deteksi Konsistensi Antara Judul dan Isi Berita COVID-19 Terhadap Topik Umum")
     
     #membagi layout ke dalam dua kolom
     left, right = st.columns(2)
@@ -343,27 +318,27 @@ if __name__ == '__main__':
     with left.form("input_form"):
         title = st.text_input("Masukkan Judul Berita", max_chars=256)
         content = st.text_area("Masukkan Isi Berita", max_chars=10000, height=1024)
-        submitted = st.form_submit_button("Cek Framing")
+        submitted = st.form_submit_button("Cek Konsistensi")
     
     #nama-nama kelas untuk klasifikasi judul dan isi
-    classification_class_names = ['Kesehatan', 'Politik', 'Ekonomi', 'Sosial', 'Lainnya']
-
-    #nama-nama kelas untuk analisis framing
-    framing_class_names = ['Ada Framing', 'Tidak Ada Framing', 'Tidak Dapat Diputuskan']
+    classification_class_names = ['Kesehatan', 'Politik', 'Ekonomi', 'Lainnya']
 
     right.write("Hasil Klasifikasi Judul Berita")
     title_fig_position = right.container()
-    title_fig_position = create_plot(title_fig_position, classification_class_names, [0, 0, 0, 0, 0])
+    title_fig_position = create_plot(title_fig_position, classification_class_names, [0, 0, 0, 0])
 
     right.write("Hasil Klasifikasi Isi Berita")
     content_fig_position = right.container()
-    content_fig_position = create_plot(content_fig_position, classification_class_names, [0, 0, 0, 0, 0])
+    content_fig_position = create_plot(content_fig_position, classification_class_names, [0, 0, 0, 0])
 
-    right.write("Hasil Analisis Framing pada Berita")
-    framing_fig_position = right.container()
-    framing_fig_position = create_plot(framing_fig_position, framing_class_names, [0, 0, 0])
-
+    result_position = right.container()
+    result_empty_position = right.empty()
+    result_info_position = right.container()
+    result_position.title("Hasil Analisis Konsistensi")
+    result_empty_position.info("Hasil analisis akan muncul di sini")
+    
     if submitted:
+        result_empty_position.empty()
         #cek apakah judul atau isi kosong
         empty_title_check = title.strip() == ''
         empty_content_check = content.strip() == ''
@@ -402,12 +377,12 @@ if __name__ == '__main__':
         check_state_dict('content')
         
         #membuat model menggunakan state dictionary hasil pembelajaran
-        title_model = create_model('title')
-        content_model = create_model('content')
+        title_model = create_model('title', 0.15)
+        content_model = create_model('content', 0.1)
 
         #melakukan encoding pada teks
         encoded_title = encode_text(preprocessed_title, 30, tokenizer)
-        encoded_content = encode_text(preprocessed_content, 512, tokenizer)
+        encoded_content = encode_text(preprocessed_content, 256, tokenizer)
 
         #melakukan klasifikasi pada judul
         title_result = classify_text(title_model, encoded_title)
@@ -417,19 +392,29 @@ if __name__ == '__main__':
         title_result['probabilities'] = title_result['probabilities'].squeeze()
         content_result['probabilities'] = content_result['probabilities'].squeeze()
 
-        #analisis framing
-        framing_result = analyze_framing(title_result['probabilities'], content_result['probabilities'])
-       
         create_plot(title_fig_position, classification_class_names, title_result['probabilities'])
         create_plot(content_fig_position, classification_class_names, content_result['probabilities'])
-        create_plot(framing_fig_position, framing_class_names, framing_result['probabilities'])
+        
+        title_class = classification_class_names[title_result['prediction'].item()]
+        content_class = classification_class_names[content_result['prediction'].item()]
+
+        result_info_position.info("Kelas Judul Berita: " + title_class)
+        result_info_position.info("Kelas Isi Berita: " + content_class)
+
+        if title_class == content_class and title_class != classification_class_names[3]:
+            result_info_position.success("Topik judul dan isi berita sudah konsisten.")
+        
+        elif title_class != content_class:
+            result_info_position.error("Topik judul dan isi berita tidak konsisten.")
+
+        else:
+            result_info_position.warning("Tidak dapat diputuskan.")
 
         #menghapus objek agar tidak memenuhi memori
         del encoded_title
         del encoded_content
         del title_result
         del content_result
-        del framing_result
 
         #menjalankan garbage collector
         gc.collect()
